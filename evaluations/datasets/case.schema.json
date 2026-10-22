@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sourcewise evaluation case",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["case_id", "split", "question", "edition_ids", "document_versions", "expected_passages", "expected_outcome", "category", "review_status"],
+  "properties": {
+    "case_id": {"type": "string", "minLength": 1},
+    "split": {"enum": ["development", "holdout"]},
+    "question": {"type": "string", "minLength": 1},
+    "edition_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "document_versions": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "minLength": 1}},
+    "expected_passages": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["edition_id", "document_version", "passage_id"], "properties": {"edition_id": {"type": "string", "minLength": 1}, "document_version": {"type": "string", "minLength": 1}, "passage_id": {"type": "string", "minLength": 1}}}},
+    "expected_outcome": {"enum": ["evidence", "abstention", "safe_failure"]},
+    "category": {"type": "string", "minLength": 1},
+    "review_status": {"enum": ["draft", "approved", "rejected"]}
+  }
+}
