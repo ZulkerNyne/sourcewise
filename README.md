@@ -1,7 +1,8 @@
 # Sourcewise
 
 Source-grounded Islamic education platform, currently **Phase 0 foundations plus a private Phase 1 intake prototype**.
-There is no tutor, retrieval engine, application database server, API, or website yet.
+There is no tutor, approved-source retrieval service, application database server, API, or website yet.
+A local unreviewed keyword inspection CLI is documented in [search](docs/search.md).
 The local importer uses SQLite for unreviewed candidates; see [importing](docs/importing.md).
 
 ## Develop

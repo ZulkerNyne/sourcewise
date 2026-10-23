@@ -32,3 +32,11 @@ Zero applicable cases means undefined, not 100%. Arabic meaning and interpretive
 accuracy require qualified human judgment; an LLM judge is supplementary. Preserve
 raw sanitized run outputs and compare versions on the same benchmark. No single
 metric proves religious correctness or absence of outside-knowledge contamination.
+
+## Keyword inspection checks
+
+Synthetic tests now cover SQL-scoped cross-edition isolation, unauthorized selection
+rejection, Arabic normalization without output changes, ranking/limits, and exact
+stored references. These are developer inspection checks on unreviewed text, not
+completion of the end-to-end source-fidelity acceptance tests or a measured retrieval
+quality benchmark. No Recall@K, Precision@K or MRR result exists yet.

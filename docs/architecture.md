@@ -45,3 +45,12 @@ metadata, SHA-256 provenance, and SQLite records. Every page remains unreviewed.
 This intentionally separates raw extraction from the approved SourcePassage contract.
 SQLite is local intake storage, not a replacement decision for the planned PostgreSQL
 application. No approval, retrieval, or learner-facing endpoint exists. See importing.md.
+
+## Phase 1 local keyword inspection
+
+`app.sources.search` reads intake bundles in SQLite read-only mode. It checks the
+selected edition set against a caller-provided authorized set, then applies edition
+filters inside parameterized SQL before returning candidates. All terms must match;
+occurrence count provides a baseline rank. Returned records include immutable citation
+identity and explicit unreviewed status. This developer inspection boundary is separate
+from planned learner-facing approved retrieval. See search.md for authorization limits.

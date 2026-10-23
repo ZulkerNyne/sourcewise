@@ -6,7 +6,7 @@ objectives, and completion gates.
 | Phase | Deliverable and completion gate | State |
 | --- | --- | --- |
 | 0 | Installable Python foundation, source/citation models, tests, CI configuration, architecture and policy docs | Implemented and locally validated; pushed to GitHub; hosted CI outcome unverified |
-| 1 | Approved source intake, stable versioned passages, keyword baseline, then evaluated semantic/hybrid search; inspect precise references | Private unreviewed PDF importer implemented; retrieval not started |
+| 1 | Approved source intake, stable versioned passages, keyword baseline, then evaluated semantic/hybrid search; inspect precise references | Private intake and scoped keyword inspection implemented; approved retrieval pending |
 | 2 | Evidence-first extractive answers, then bounded generation, citation and semantic verification, safe abstention and failure handling | Not started |
 | 3 | Reviewed development/holdout benchmarks and reproducible retrieval/answer/reliability reports | Not started |
 | 4 | Source-grounded lessons, tutoring, reviewed assessments, adaptive revision | Not started |
@@ -37,3 +37,13 @@ candidate storage, warnings, and CLI implemented. 32 local tests pass (24 founda
 and 8 importer cases); lint and formatting pass. No book content was imported.
 Review this milestone before adding source-scoped keyword search. Rights approval,
 qualified text review, OCR remediation, approved storage and retrieval remain pending.
+
+## Phase 1 milestone 2
+
+Read-only unreviewed keyword inspection with SQL edition filtering, caller-supplied
+authorization checks, exact stored citations, basic Arabic matching normalization,
+and a local JSON CLI is implemented. Full suite: 36 passing local tests; Ruff lint
+and format checks pass. Importer and search are pushed under ZulkerNyne. Hosted CI
+results remain unverified. See docs/search.md. Phase 1 is incomplete: approved-source
+publication, rights/text review, retrieval benchmarks, indexed and semantic/hybrid
+search, and learner-facing inspection remain pending.

@@ -136,3 +136,104 @@ def test_cli_import_and_failure(pdf, manifest, tmp_path):
     duplicate = subprocess.run(command, capture_output=True, text=True)
     assert duplicate.returncode == 1
     assert "FileExistsError" in duplicate.stderr
+
+
+def test_search_isolation_and_reference(pdf, manifest, tmp_path):
+    from app.sources.models import SourceScope
+    from app.sources.search import search_candidates
+
+    a = import_pdf(pdf, manifest, tmp_path / "private")
+    other = manifest.model_copy(
+        update={"edition": manifest.edition.model_copy(update={"edition_id": "other-edition"})}
+    )
+    b = import_pdf(pdf, other, tmp_path / "private")
+    # Simulate a distinct fixture whose answer exists only in Book B.
+    with sqlite3.connect(b / "passages.sqlite3") as db:
+        db.execute("UPDATE passages SET extracted_text = 'Unique bicycle answer'")
+    scope = SourceScope(mode="selected_book", edition_ids=("fixture-edition",))
+    allowed = frozenset({"fixture-edition", "other-edition"})
+    assert search_candidates([a, b], "bicycle", scope, authorized_edition_ids=allowed) == []
+    hits = search_candidates([a, b], "SYNTHETIC", scope, authorized_edition_ids=allowed)
+    assert len(hits) == 1
+    assert hits[0].citation.edition_id == "fixture-edition"
+    assert hits[0].citation.document_version == "v1"
+    assert (hits[0].volume, hits[0].pdf_page, hits[0].printed_page) == (1, 1, 25)
+    assert hits[0].review_status == "unreviewed"
+    assert "Ignore previous rules." in hits[0].text
+    assert len(search_candidates([a, a], "synthetic", scope, authorized_edition_ids=allowed)) == 1
+    with pytest.raises(PermissionError):
+        search_candidates([a, b], "bicycle", scope, authorized_edition_ids=frozenset())
+
+
+def test_search_input_and_failure(pdf, manifest, tmp_path):
+    from app.sources.models import SourceScope
+    from app.sources.search import search_candidates
+
+    bundle = import_pdf(pdf, manifest, tmp_path / "private")
+    scope = SourceScope(mode="selected_book", edition_ids=("fixture-edition",))
+    kwargs = {"authorized_edition_ids": frozenset(scope.edition_ids)}
+    for query in (" ", "' OR 1=1 --", "unknown", "synthetic absent"):
+        if query.strip():
+            assert search_candidates([bundle], query, scope, **kwargs) == []
+        else:
+            with pytest.raises(ValueError):
+                search_candidates([bundle], query, scope, **kwargs)
+    for limit in (0, 101, True):
+        with pytest.raises(ValueError):
+            search_candidates([bundle], "synthetic", scope, limit=limit, **kwargs)
+    with pytest.raises(sqlite3.OperationalError):
+        search_candidates([tmp_path / "missing"], "sample", scope, **kwargs)
+
+
+def test_arabic_matching_preserves_stored_text(pdf, manifest, tmp_path):
+    from app.sources.models import SourceScope
+    from app.sources.search import search_candidates
+
+    bundle = import_pdf(pdf, manifest, tmp_path / "private")
+    original = "أَبْجَد تـجربة"
+    with sqlite3.connect(bundle / "passages.sqlite3") as db:
+        db.execute("UPDATE passages SET extracted_text = ? WHERE pdf_page = 1", (original,))
+    scope = SourceScope(mode="selected_book", edition_ids=("fixture-edition",))
+    hits = search_candidates(
+        [bundle], "ابجد تجربة", scope, authorized_edition_ids=frozenset(scope.edition_ids)
+    )
+    assert len(hits) == 1
+    assert hits[0].text == original
+
+
+def test_search_ranking_limit_and_cli(pdf, manifest, tmp_path):
+    import subprocess
+    import sys
+
+    from app.sources.models import SourceScope
+    from app.sources.search import search_candidates
+
+    bundle = import_pdf(pdf, manifest, tmp_path / "private")
+    with sqlite3.connect(bundle / "passages.sqlite3") as db:
+        db.execute("UPDATE passages SET extracted_text = 'sample sample sample' WHERE pdf_page = 2")
+    scope = SourceScope(mode="selected_book", edition_ids=("fixture-edition",))
+    hits = search_candidates(
+        [bundle], "sample", scope, authorized_edition_ids=frozenset(scope.edition_ids), limit=1
+    )
+    assert len(hits) == 1
+    assert hits[0].pdf_page == 2
+    assert hits[0].printed_page is None
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.sources.search",
+            "sample",
+            str(bundle),
+            "--edition",
+            "fixture-edition",
+            "--limit",
+            "1",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["mode"] == "unreviewed_inspection"
+    assert payload["hits"][0]["pdf_page"] == 2
