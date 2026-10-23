@@ -1,6 +1,6 @@
-"""Read-only scoped keyword inspection of UNREVIEWED local intake bundles.
+"""Read-only scoped keyword search of intake or explicitly reviewed snapshots.
 
-This development tool is not learner-facing approved-source retrieval. The caller
+This local tool is not an authenticated learner-facing retrieval service. The caller
 must supply an independently authorized edition set; it must never come from a model.
 """
 
@@ -12,6 +12,7 @@ import unicodedata
 from pathlib import Path
 
 from app.sources.models import Citation, PositiveInt, Record, SourceScope
+from app.sources.review import verify_publication
 
 
 class CandidateHit(Record):
@@ -39,18 +40,19 @@ def normalize(text: str) -> str:
     )
 
 
-def search_candidates(
+def _search(
     bundles: list[Path],
     query: str,
     scope: SourceScope,
     *,
     authorized_edition_ids: frozenset[str],
     limit: int = 5,
+    approved: bool = False,
 ) -> list[CandidateHit]:
-    """Return all-term lexical matches filtered by edition inside each SQL query.
+    """Return lexical matches filtered by edition and review status inside SQL.
 
-    Only unreviewed candidate results are exposed. Empty results mean no keyword
-    matches, not evidence that a book contains no answer. Missing/corrupt databases
+    Approved mode also validates snapshot integrity and withdrawal. Empty results mean
+    no keyword matches, not evidence that a book contains no answer. Missing/corrupt databases
     raise rather than silently producing an apparently successful empty search.
     """
     if not set(scope.edition_ids) <= authorized_edition_ids:
@@ -76,17 +78,21 @@ def search_candidates(
                p.review_status, {score_sql} AS score
         FROM passages p JOIN documents d ON p.document_id = d.document_id
         WHERE d.edition_id IN ({placeholders})
-          AND d.review_status = 'unreviewed' AND p.review_status = 'unreviewed'
+          AND d.review_status = ? AND p.review_status = ?
           AND {predicates}
         ORDER BY score DESC, p.passage_id ASC LIMIT ?
     """
     hits: dict[tuple[str, str, str], CandidateHit] = {}
     for bundle in dict.fromkeys(path.resolve() for path in bundles):
+        if approved:
+            verify_publication(bundle)
         database = bundle / "passages.sqlite3"
         with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as db:
             db.create_function("normalize", 1, normalize, deterministic=True)
             parameters = [term for term in terms for _ in range(2)]
             parameters.extend(scope.edition_ids)
+            status = "approved" if approved else "unreviewed"
+            parameters.extend((status, status))
             parameters.extend(terms)
             parameters.append(limit)
             for row in db.execute(sql, parameters):
@@ -121,17 +127,52 @@ def search_candidates(
     return sorted(hits.values(), key=lambda hit: (-hit.score, hit.citation.passage_id))[:limit]
 
 
+def search_candidates(
+    bundles: list[Path],
+    query: str,
+    scope: SourceScope,
+    *,
+    authorized_edition_ids: frozenset[str],
+    limit: int = 5,
+) -> list[CandidateHit]:
+    """Local inspection only; never use unreviewed results for learner answers."""
+    return _search(
+        bundles, query, scope, authorized_edition_ids=authorized_edition_ids, limit=limit
+    )
+
+
+def search_approved(
+    bundles: list[Path],
+    query: str,
+    scope: SourceScope,
+    *,
+    authorized_edition_ids: frozenset[str],
+    limit: int = 5,
+) -> list[CandidateHit]:
+    """Only reviewed snapshots; edition and approval filters apply in SQL."""
+    return _search(
+        bundles,
+        query,
+        scope,
+        authorized_edition_ids=authorized_edition_ids,
+        limit=limit,
+        approved=True,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect UNREVIEWED private keyword matches")
     parser.add_argument("query")
     parser.add_argument("bundles", type=Path, nargs="+")
     parser.add_argument("--edition", action="append", required=True)
     parser.add_argument("--limit", type=int, default=5)
+    parser.add_argument("--approved", action="store_true", help="Search reviewed snapshots only")
     args = parser.parse_args()
     try:
         # A local operator may inspect their own files. This is not server authorization.
         scope = SourceScope(mode="selected_library", edition_ids=tuple(args.edition))
-        hits = search_candidates(
+        search = search_approved if args.approved else search_candidates
+        hits = search(
             args.bundles,
             args.query,
             scope,
@@ -143,7 +184,7 @@ def main() -> None:
     print(
         json.dumps(
             {
-                "mode": "unreviewed_inspection",
+                "mode": "approved_snapshot" if args.approved else "unreviewed_inspection",
                 "hits": [hit.model_dump(mode="json") for hit in hits],
             },
             ensure_ascii=False,

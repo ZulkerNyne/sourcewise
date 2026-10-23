@@ -6,7 +6,7 @@ objectives, and completion gates.
 | Phase | Deliverable and completion gate | State |
 | --- | --- | --- |
 | 0 | Installable Python foundation, source/citation models, tests, CI configuration, architecture and policy docs | Implemented and locally validated; pushed to GitHub; hosted CI outcome unverified |
-| 1 | Approved source intake, stable versioned passages, keyword baseline, then evaluated semantic/hybrid search; inspect precise references | Private intake and scoped keyword inspection implemented; approved retrieval pending |
+| 1 | Approved source intake, stable versioned passages, keyword baseline, then evaluated semantic/hybrid search; inspect precise references | Private intake, local review snapshots, and scoped candidate/approved keyword search implemented; broader retrieval pending |
 | 2 | Evidence-first extractive answers, then bounded generation, citation and semantic verification, safe abstention and failure handling | Not started |
 | 3 | Reviewed development/holdout benchmarks and reproducible retrieval/answer/reliability reports | Not started |
 | 4 | Source-grounded lessons, tutoring, reviewed assessments, adaptive revision | Not started |
@@ -47,3 +47,14 @@ and format checks pass. Importer and search are pushed under ZulkerNyne. Hosted 
 results remain unverified. See docs/search.md. Phase 1 is incomplete: approved-source
 publication, rights/text review, retrieval benchmarks, indexed and semantic/hybrid
 search, and learner-facing inspection remain pending.
+
+## Phase 1 milestone 3
+
+Local human review draft generation, explicit rights/text attestations, per-page
+approved snapshots, approved-only scoped search, integrity checks and withdrawal
+are implemented. Full local suite: 51 tests pass; Ruff lint/format checks pass.
+Review records are local operator assertions, not authenticated accounts or proof
+of rights. No actual book has been approved or imported into application storage.
+See docs/review.md. Phase 1 remains incomplete. Next: a small reviewed synthetic
+retrieval benchmark with relevant-passage labels and Recall/Precision/MRR reporting,
+then indexed retrieval. Real source use remains gated by rights and qualified review.

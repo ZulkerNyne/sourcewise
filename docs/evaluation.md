@@ -40,3 +40,10 @@ rejection, Arabic normalization without output changes, ranking/limits, and exac
 stored references. These are developer inspection checks on unreviewed text, not
 completion of the end-to-end source-fidelity acceptance tests or a measured retrieval
 quality benchmark. No Recall@K, Precision@K or MRR result exists yet.
+
+## Approval-boundary tests
+
+Synthetic reviews test exact-byte binding, per-page approval, untouched intake,
+required attestations, approved/unreviewed separation, stale/corrupt input rejection,
+withdrawal and local CLI execution. They establish software behavior in the local
+operator trust model, not reviewer authority, actual rights, or religious accuracy.

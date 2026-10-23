@@ -30,3 +30,13 @@ An authorized reviewer checks rights, text extraction, Arabic fidelity, translat
 provenance, and metadata before approving an edition. Preserve a review audit trail.
 Corrections require new document versions and retention of historical citations.
 No actual religious source has been imported, licensed, or approved in Phase 0.
+
+## Local approval implementation
+
+Phase 1 now records explicit local operator rights evidence, intended use, reviewer,
+time, metadata checks and per-page fidelity/attribution attestations before producing
+a partial approved snapshot. All other pages remain unreviewed. Fingerprints prevent
+accidental use of stale decisions; withdrawal blocks subsequent approved search while
+retaining history. These are recorded assertions, not automated legal or religious
+judgments or authenticated reviewer identities. See review.md. The uploaded book has
+not been imported into application storage or approved.

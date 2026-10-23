@@ -54,3 +54,13 @@ filters inside parameterized SQL before returning candidates. All terms must mat
 occurrence count provides a baseline rank. Returned records include immutable citation
 identity and explicit unreviewed status. This developer inspection boundary is separate
 from planned learner-facing approved retrieval. See search.md for authorization limits.
+
+## Phase 1 local approval boundary
+
+`app.sources.review` prepares unchecked review drafts, validates explicit human
+attestations against exact source PDF/database/manifest/text hashes, and creates a
+separate private SQLite snapshot containing only selected reviewed pages. Intake is
+unchanged. Approved search requires an intact, nonwithdrawn snapshot and applies
+edition plus approved-status filters in SQL. Local withdrawal preserves history.
+No reviewer accounts, course permissions, authenticated legal approvals, or remote
+publication are implied. See review.md and ADR 0003 for the trust boundary.

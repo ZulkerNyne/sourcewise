@@ -57,3 +57,12 @@ No retrieval quality benchmark, semantic accuracy metric, or hosted CI result is
 
 Next: review this milestone, then design the approved-source publication/review
 boundary and a small reviewed retrieval dataset before adding indexed retrieval.
+
+## Approved snapshot mode (milestone 3)
+
+Use --approved only with snapshots created by the explicit local review workflow
+in docs/review.md. search_approved validates snapshot integrity and withdrawal,
+then filters edition and approved status inside SQL. Candidate inspection remains
+unchanged. The local operator trust model is not authenticated reviewer or student
+access control. Partial snapshots contain only reviewed pages; they do not approve
+entire editions. Approval is an explicit human assertion, not model certification.

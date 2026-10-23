@@ -237,3 +237,316 @@ def test_search_ranking_limit_and_cli(pdf, manifest, tmp_path):
     payload = json.loads(result.stdout)
     assert payload["mode"] == "unreviewed_inspection"
     assert payload["hits"][0]["pdf_page"] == 2
+
+
+@pytest.fixture
+def reviewed_fixture(pdf, manifest, tmp_path):
+    from datetime import UTC, datetime
+
+    from app.sources.review import ReviewDecision, digest
+
+    bundle = import_pdf(pdf, manifest, tmp_path / "intake")
+    page = rows(bundle)[0]
+    decision = ReviewDecision(
+        review_id="synthetic-review-1",
+        reviewer="Synthetic test reviewer",
+        reviewed_at=datetime.now(UTC),
+        source_pdf_sha256=digest(bundle / "original.pdf"),
+        source_database_sha256=digest(bundle / "passages.sqlite3"),
+        source_manifest_sha256=digest(bundle / "manifest.json"),
+        rights_evidence="Test suite authored this synthetic PDF; no third-party content",
+        intended_use="Local software tests only",
+        metadata_and_page_mappings_checked=True,
+        passages=(
+            {
+                "passage_id": page[0],
+                "text_sha256": hashlib.sha256(page[4].encode()).hexdigest(),
+                "text_checked_against_original": True,
+                "attribution_and_translation_checked": True,
+            },
+        ),
+    )
+    return bundle, decision
+
+
+def test_review_snapshot_preserves_intake_and_excludes_unreviewed(reviewed_fixture, tmp_path):
+    from app.sources.models import SourceScope
+    from app.sources.review import digest, publish_review
+    from app.sources.search import search_approved, search_candidates
+
+    source, decision = reviewed_fixture
+    before = digest(source / "passages.sqlite3")
+    published = publish_review(source, decision, tmp_path / "approved")
+    assert digest(source / "passages.sqlite3") == before
+    assert all(row[6] == "unreviewed" for row in rows(source))
+    assert len(rows(published)) == 1
+    assert rows(published)[0][0:6] == rows(source)[0][0:6]
+    assert rows(published)[0][6] == "approved"
+    scope = SourceScope(mode="selected_book", edition_ids=("fixture-edition",))
+    kwargs = {"authorized_edition_ids": frozenset(scope.edition_ids)}
+    assert len(search_approved([published], "synthetic", scope, **kwargs)) == 1
+    assert search_candidates([published], "synthetic", scope, **kwargs) == []
+    with pytest.raises(FileNotFoundError):
+        search_approved([source], "synthetic", scope, **kwargs)
+    with pytest.raises(PermissionError):
+        search_approved([published], "synthetic", scope, authorized_edition_ids=frozenset())
+
+
+def test_review_requires_current_hashes(reviewed_fixture, tmp_path):
+    from app.sources.review import publish_review
+
+    source, decision = reviewed_fixture
+    with sqlite3.connect(source / "passages.sqlite3") as db:
+        db.execute("UPDATE passages SET extracted_text = 'Changed after review'")
+    with pytest.raises(ValueError, match="database changed"):
+        publish_review(source, decision, tmp_path / "approved")
+    assert not (tmp_path / "approved").exists()
+
+
+@pytest.mark.parametrize("change", ["unknown", "wrong_text", "blank"])
+def test_review_rejects_invalid_passage(reviewed_fixture, tmp_path, change):
+    from app.sources.review import digest, publish_review
+
+    source, decision = reviewed_fixture
+    approval = decision.passages[0]
+    if change == "unknown":
+        approval = approval.model_copy(update={"passage_id": "missing"})
+    elif change == "wrong_text":
+        approval = approval.model_copy(update={"text_sha256": "0" * 64})
+    else:
+        blank = rows(source)[1]
+        approval = approval.model_copy(
+            update={
+                "passage_id": blank[0],
+                "text_sha256": hashlib.sha256(b"").hexdigest(),
+            }
+        )
+    decision = decision.model_copy(
+        update={
+            "passages": (approval,),
+            "source_database_sha256": digest(source / "passages.sqlite3"),
+        }
+    )
+    with pytest.raises(ValueError):
+        publish_review(source, decision, tmp_path / "approved")
+
+
+def test_review_attestations_required(reviewed_fixture):
+    from app.sources.review import ReviewDecision
+    from pydantic import ValidationError
+
+    _, decision = reviewed_fixture
+    for changes in (
+        {"rights_evidence": " "},
+        {"reviewer": ""},
+        {"passages": []},
+        {"metadata_and_page_mappings_checked": False},
+        {"passages": [decision.passages[0].model_dump()] * 2},
+    ):
+        with pytest.raises(ValidationError):
+            ReviewDecision.model_validate({**decision.model_dump(), **changes})
+    data = decision.model_dump()
+    data["passages"][0]["text_checked_against_original"] = False
+    with pytest.raises(ValidationError):
+        ReviewDecision.model_validate(data)
+
+
+def test_duplicate_review_and_withdrawal(reviewed_fixture, tmp_path):
+    from app.sources.models import SourceScope
+    from app.sources.review import publish_review, withdraw_publication
+    from app.sources.search import search_approved
+
+    source, decision = reviewed_fixture
+    published = publish_review(source, decision, tmp_path / "approved")
+    with pytest.raises(FileExistsError):
+        publish_review(source, decision, tmp_path / "approved")
+    withdraw_publication(published, "Test reviewer", "Synthetic withdrawal test")
+    assert json.loads((published / "withdrawal.json").read_text())["reason"]
+    scope = SourceScope(mode="selected_book", edition_ids=("fixture-edition",))
+    with pytest.raises(PermissionError, match="withdrawn"):
+        search_approved(
+            [published], "synthetic", scope, authorized_edition_ids=frozenset(scope.edition_ids)
+        )
+    assert (published / "review.json").exists()
+    assert rows(published)[0][4] == rows(source)[0][4]
+
+
+@pytest.mark.parametrize("file", ["passages.sqlite3", "review.json"])
+def test_changed_publication_fails_closed(reviewed_fixture, tmp_path, file):
+    from app.sources.review import publish_review, verify_publication
+
+    source, decision = reviewed_fixture
+    published = publish_review(source, decision, tmp_path / "approved")
+    with (published / file).open("ab") as output:
+        output.write(b" ")
+    with pytest.raises(ValueError, match="changed"):
+        verify_publication(published)
+
+
+def test_review_and_approved_search_cli(reviewed_fixture, tmp_path):
+    import subprocess
+    import sys
+
+    source, decision = reviewed_fixture
+    review_file = tmp_path / "review.json"
+    review_file.write_text(decision.model_dump_json())
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.sources.review",
+            "publish",
+            str(source),
+            str(review_file),
+            "--storage",
+            str(tmp_path / "approved"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    published = tmp_path / "approved" / hashlib.sha256(decision.review_id.encode()).hexdigest()
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.sources.search",
+            "synthetic",
+            str(published),
+            "--edition",
+            "fixture-edition",
+            "--approved",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["mode"] == "approved_snapshot"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.sources.review",
+            "withdraw",
+            str(published),
+            "--reviewer",
+            "Synthetic reviewer",
+            "--reason",
+            "Test withdrawal",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_prepare_review_is_unchecked_and_cannot_publish(reviewed_fixture, tmp_path):
+    from app.sources.review import ReviewDecision, prepare_review
+    from pydantic import ValidationError
+
+    source, decision = reviewed_fixture
+    draft = tmp_path / "draft.json"
+    prepare_review(source, [decision.passages[0].passage_id], draft)
+    data = json.loads(draft.read_text())
+    assert data["source_database_sha256"] == decision.source_database_sha256
+    assert data["passages"][0]["text_sha256"] == decision.passages[0].text_sha256
+    assert data["passages"][0]["text_checked_against_original"] is False
+    with pytest.raises(ValidationError):
+        ReviewDecision.model_validate(data)
+    with pytest.raises(FileExistsError):
+        prepare_review(source, [decision.passages[0].passage_id], draft)
+
+
+def test_changed_pdf_or_manifest_invalidates_review(reviewed_fixture, tmp_path):
+    from app.sources.review import publish_review
+
+    source, decision = reviewed_fixture
+    manifest_file = source / "manifest.json"
+    old = manifest_file.read_bytes()
+    manifest_file.write_bytes(old + b" ")
+    with pytest.raises(ValueError, match="manifest changed"):
+        publish_review(source, decision, tmp_path / "approved")
+    manifest_file.write_bytes(old)
+    with (source / "original.pdf").open("ab") as output:
+        output.write(b" ")
+    with pytest.raises(ValueError, match="PDF changed"):
+        publish_review(source, decision, tmp_path / "approved")
+
+
+def test_unreviewed_high_rank_page_cannot_displace_approved(reviewed_fixture, tmp_path):
+    from app.sources.models import SourceScope
+    from app.sources.review import digest, publish_review
+    from app.sources.search import search_approved
+
+    source, decision = reviewed_fixture
+    with sqlite3.connect(source / "passages.sqlite3") as db:
+        db.execute("UPDATE passages SET extracted_text = ? WHERE pdf_page=2", ("synthetic " * 100,))
+    decision = decision.model_copy(
+        update={
+            "source_database_sha256": digest(source / "passages.sqlite3"),
+        }
+    )
+    approved = publish_review(source, decision, tmp_path / "approved")
+    scope = SourceScope(mode="selected_book", edition_ids=("fixture-edition",))
+    hits = search_approved(
+        [approved], "synthetic", scope, authorized_edition_ids=frozenset(scope.edition_ids), limit=1
+    )
+    assert len(hits) == 1
+    assert hits[0].pdf_page == 1
+
+
+def test_approved_search_cannot_expand_to_other_edition(reviewed_fixture, tmp_path):
+    from app.sources.models import SourceScope
+    from app.sources.review import publish_review
+    from app.sources.search import search_approved
+
+    source, decision = reviewed_fixture
+    approved = publish_review(source, decision, tmp_path / "approved")
+    scope = SourceScope(mode="selected_book", edition_ids=("different-edition",))
+    hits = search_approved(
+        [approved],
+        "synthetic",
+        scope,
+        authorized_edition_ids=frozenset({"different-edition", "fixture-edition"}),
+    )
+    assert hits == []
+
+
+def test_prepare_cli_requires_actual_review_before_publish(reviewed_fixture, tmp_path):
+    import subprocess
+    import sys
+
+    source, decision = reviewed_fixture
+    draft = tmp_path / "cli-draft.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.sources.review",
+            "prepare",
+            str(source),
+            str(draft),
+            "--passage",
+            decision.passages[0].passage_id,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.sources.review",
+            "publish",
+            str(source),
+            str(draft),
+            "--storage",
+            str(tmp_path / "approved"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "ValidationError" in result.stderr
+    assert not (tmp_path / "approved").exists()
