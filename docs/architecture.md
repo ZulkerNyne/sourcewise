@@ -35,3 +35,13 @@ Published and machine translations will use separate provenance-bearing records;
 no translation or storage model is implemented yet. Arabic originals are never replaced.
 See PROJECT_PLAN.md for the complete long-term entity inventory. Do not create all
 entities before the milestone that needs them.
+
+## Phase 1 intake prototype
+
+`app.sources.importer` accepts a local PDF, validated edition/volume/version manifest,
+and private storage path outside this checkout. It copies the original, extracts
+page-level candidate text with pypdf, and publishes an immutable bundle containing
+metadata, SHA-256 provenance, and SQLite records. Every page remains unreviewed.
+This intentionally separates raw extraction from the approved SourcePassage contract.
+SQLite is local intake storage, not a replacement decision for the planned PostgreSQL
+application. No approval, retrieval, or learner-facing endpoint exists. See importing.md.

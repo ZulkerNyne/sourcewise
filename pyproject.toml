@@ -7,7 +7,7 @@ name = "sourcewise"
 version = "0.1.0"
 description = "Foundations for a source-grounded Islamic education platform"
 requires-python = ">=3.12"
-dependencies = ["pydantic>=2.10,<3"]
+dependencies = ["pydantic>=2.10,<3", "pypdf>=6,<7"]
 
 [dependency-groups]
 dev = ["pytest>=8.3,<10", "ruff>=0.11,<1"]
